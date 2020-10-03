@@ -23,18 +23,17 @@ class FloorPlaneMapping {
         ros::Subscriber scan_sub_;
         ros::Subscriber pos_sub_;
         ros::Subscriber speed_sub_;
+        ros::Publisher map_pub_;
         tf::TransformListener listener_;
 
 
         ros::NodeHandle nh_;
 
-        ros::Publisher mapping_pub = nh_.advertise<cv::Mat_<uint32_t>>("map_topic", 1000);
-
         std::string base_frame_;
-        double max_range_;
 
         typedef std::list<pcl::PointXYZ> PointList;
         typedef std::map<cv::Point,PointList> ListMatrix;
+        ListMatrix M;
 
         pcl::PointCloud<pcl::PointXYZ> lastpc_;
 
@@ -42,6 +41,11 @@ class FloorPlaneMapping {
         double max_range_;
         double tolerance;
         int n_samples; 
+        double eps;
+        double last_node[2];
+
+        tf2_msgs::TFMessage posRobot;
+        geometry_msgs::Twist vRobot;
 
     protected: // ROS Callbacks
 
@@ -77,29 +81,34 @@ class FloorPlaneMapping {
             for (unsigned int i=0;i<n;i++) {
                 double x = lastpc_[pidx[i]].x;
                 double y = lastpc_[pidx[i]].y;
-                double z = lastpc_[pidx[i]].z;
 
-                cv::Point coord(floor((x+5)*10),floor((y+5)*10)));
-                M[coord].push_back(pidx[i]);
+                cv::Point coord(floor((x+5)*10),floor((y+5)*10));
+                M[coord].push_back(lastpc_[pidx[i]]);
             }
 
-            double eps(0.5);
+            eps = 0.5;
+            last_node[0] = -2.9250;
+            last_node[1] = 2.2000; //found in vrep
+            
             cv::Mat_<uint8_t> traversability_map(100,100);
             traversability_map = -1;
-            if (hypot((posRobot.x - last_node.x, posRobot.y - last_node.y) < eps) && hypot((vRobot.x, vRobot.y) < eps))
+            if ((hypot(posRobot.transforms.translation.x - last_node[0], posRobot.transforms.translation.y - last_node[1]) < eps) && (hypot(vRobot.linear.x, vRobot.linear.y) < eps))
             {
                 for (ListMatrix::const_iterator it = M.begin(); it!=M.end(); it++) 
                 {
+                    float outlierRatio;
+                    int traversable;
                     cv::Point coord = it -> first;
                     const PointList &L = it -> second;
                         
                     // process Ransac
-                    nCell = L.size();
+                    unsigned int nCell = M[coord].size();
                     size_t best = 0;
                     double X[3] = {1,1,1};
                     ROS_INFO("%d useful points out of %d",(int)n,(int)temp.size());
 
-                    for (unsigned int i=0;i<(unsigned)n_samples;i++) {        
+                    for (unsigned int i=0;i<(unsigned)n_samples;i++) 
+                    {        
                         // Implement RANSAC here. Useful commands:
                         // Select a random number in in [0,i-1]
 
@@ -117,9 +126,9 @@ class FloorPlaneMapping {
                         n2 = std::min((rand() / (double)RAND_MAX) * nCell,(double)nCell-1);
                         n3 = std::min((rand() / (double)RAND_MAX) * nCell,(double)nCell-1);
 
-                        Eigen::Vector3f P1; P1 << L[n1].x, L[n1].y, L[n1].z; 
-                        Eigen::Vector3f P2; P2 << L[n2].x, L[n2].y, L[n2].z; 
-                        Eigen::Vector3f P3; P3 << L[n3].x, L[n3].y, L[n3].z; 
+                        Eigen::Vector3f P1; P1 << M[coord][n1].x, M[coord][n1].y, M[coord][n1].z; 
+                        Eigen::Vector3f P2; P2 << M[coord][n2].x, M[coord][n2].y, M[coord][n2].z; 
+                        Eigen::Vector3f P3; P3 << M[coord][n3].x, M[coord][n3].y, M[coord][n3].z; 
 
                         // Plane equation
                         float a1 = P2[0] - P1[0]; 
@@ -137,11 +146,11 @@ class FloorPlaneMapping {
 
                         for (unsigned int j=0;j<(unsigned)nCell;j++)
                         {   
-                            Eigen::Vector3f A; A << L[j].x, L[j].y, L[j].z; 
+                            Eigen::Vector3f A; A << M[coord][j].x, M[coord][j].y, M[coord][j].z; 
                             Eigen::Vector3f M; M << P3[0],P3[1],P3[2] ;
                             Eigen::Vector3f MA; MA << A[0]-M[0], A[1]-M[1], A[2]-M[2];
                             double distance =   abs(MA.dot(N))/N.norm();
-                            if (distance < 0.1*tolerance)
+                            if (distance < tolerance)
                             {
                                 S++;
                             }
@@ -153,47 +162,44 @@ class FloorPlaneMapping {
                         X[1] = -b;
                         X[2] = -d;
 
-                        double outlierRatio = nCell - S/nCell;
-                        }
+                        float outlierRatio = (nCell - S)/nCell;
+                    }
 
-                        
-                    }      
-
-                if (outlierRatio < 0.1)
-                {
-                    int traversable = 0;
-                }         
-                else 
-                {
-                    int traversable = 1;
-                }
-                
-                traversability_map(coord.y, coord.x) = traversable;
+                    if (outlierRatio < 0.3)
+                    {
+                        traversable = 0;
+                    }         
+                    else 
+                    {
+                        traversable = 1;
+                    }
+                    
+                    traversability_map(coord.y, coord.x) = traversable;
                 }
             }
-            map_pub.publish(traversability_map);
+            map_pub_.publish(traversability_map);
         }   
 
-        void pos_callback(tf2_msgs::TFMessageConstPtr msg)
+        void pos_callback(const tf2_msgs::TFMessageConstPtr msg)
         {
             tf2_msgs::TFMessage temp;
-            pcl::fromROSMsg(*msg.TFMessage.Vector3, posRobot);
+            pcl::fromROSMsg(*msg, posRobot); 
         }
 
-        void speed_callback(geometry_msgs::TwistConstPtr msg)
+        void speed_callback(const geometry_msgs::TwistConstPtr msg)
         {
             geometry_msgs::vector3 vitesse;
-            pcl::fromROSMsg(*msg.geometry_msgs.Vector3, posRobot);
+            pcl::fromROSMsg(*msg, vRobot); 
         }
 
     public:
 
         FloorPlaneMapping() : nh_("~")
         {
-            nh_.param("base_frame",base_frame_,std::string("/body"));
-            nh_.param("max_range",max_range_,5.0);
+            nh_.param("base_frame",base_frame_,std::string("/bubbleRob"));
+            nh_.param("max_range",max_range_,2.0);
             nh_.param("n_samples",n_samples,100);
-            nh_.param("tolerance",tolerance,1.0);
+            nh_.param("tolerance",tolerance,0.5);
 
             ROS_INFO("Searching for Plane parameter z = a x + b y + c");
             ROS_INFO("RANSAC: %d iteration with %f tolerance",n_samples,tolerance);
