@@ -83,7 +83,7 @@ class FloorPlaneMapping {
                 double y = lastpc_[pidx[i]].y;
 
                 cv::Point coord(floor((x+5)*10),floor((y+5)*10));
-                M[coord].push_back(lastpc_[pidx[i]]);
+                pth_back(lastpc_[pidx[i]]);
             }
 
             eps = 0.5;
@@ -102,7 +102,7 @@ class FloorPlaneMapping {
                     const PointList &L = it -> second;
                         
                     // process Ransac
-                    unsigned int nCell = M[coord].size();
+                    unsigned int nCell = pte();
                     size_t best = 0;
                     double X[3] = {1,1,1};
                     ROS_INFO("%d useful points out of %d",(int)n,(int)temp.size());
@@ -122,13 +122,24 @@ class FloorPlaneMapping {
                         // Create a 3D point:
                         // Eigen::Vector3f P; P << x,y,z;
 
+                        int idx = 0;
                         n1 = std::min((rand() / (double)RAND_MAX) * nCell,(double)nCell-1);
                         n2 = std::min((rand() / (double)RAND_MAX) * nCell,(double)nCell-1);
                         n3 = std::min((rand() / (double)RAND_MAX) * nCell,(double)nCell-1);
-
-                        Eigen::Vector3f P1; P1 << M[coord][n1].x, M[coord][n1].y, M[coord][n1].z; 
-                        Eigen::Vector3f P2; P2 << M[coord][n2].x, M[coord][n2].y, M[coord][n2].z; 
-                        Eigen::Vector3f P3; P3 << M[coord][n3].x, M[coord][n3].y, M[coord][n3].z; 
+                        
+                        for (ListMatrix::const_iterator pt = L.begin(); pt!=L.end(); pt++) 
+                		{	
+                			if(idx==n1){
+                				Eigen::Vector3f P1; P1 << pt.x, pt.y, pt.z; 
+                			}
+                        	if(idx==n2){
+                				Eigen::Vector3f P2; P2 << pt.x, pt.y, pt.z; 
+                			}
+                			if(idx==n13){
+                				Eigen::Vector3f P3; P3 << pt.x, pt.y, pt.z; 
+                			}
+                        	
+                        }
 
                         // Plane equation
                         float a1 = P2[0] - P1[0]; 
@@ -144,9 +155,9 @@ class FloorPlaneMapping {
                         Eigen::Vector3f N; N << a,b,c;
 
 
-                        for (unsigned int j=0;j<(unsigned)nCell;j++)
+                        for (ListMatrix::const_iterator pt = L.begin(); pt!=L.end(); pt++)
                         {   
-                            Eigen::Vector3f A; A << M[coord][j].x, M[coord][j].y, M[coord][j].z; 
+                            Eigen::Vector3f A; A << pt.x, pt.y, pt.z; 
                             Eigen::Vector3f M; M << P3[0],P3[1],P3[2] ;
                             Eigen::Vector3f MA; MA << A[0]-M[0], A[1]-M[1], A[2]-M[2];
                             double distance =   abs(MA.dot(N))/N.norm();
