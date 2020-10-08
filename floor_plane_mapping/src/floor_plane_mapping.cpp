@@ -11,9 +11,6 @@
 
 #include <Eigen/Core>
 
-
-#include <geometry_msgs/Twist.h>
-#include <tf2_msgs/TFMessage.h>
 #include <map>
 
 //OBj2 : Détection de cercle sur le pointcloud de la cellule
@@ -31,8 +28,11 @@ class FloorPlaneMapping {
 
         std::string base_frame_;
 
-        typedef std::list<pcl::PointXYZ> PointList;
+        typedef std::vector<pcl::PointXYZ> PointList;
         typedef std::map<cv::Point,PointList> ListMatrix;
+
+        
+
         ListMatrix M;
 
         pcl::PointCloud<pcl::PointXYZ> lastpc_;
@@ -41,11 +41,6 @@ class FloorPlaneMapping {
         double max_range_;
         double tolerance;
         int n_samples; 
-        double eps;
-        double last_node[2];
-
-        tf2_msgs::TFMessage posRobot;
-        geometry_msgs::Twist vRobot;
 
     protected: // ROS Callbacks
 
@@ -83,18 +78,18 @@ class FloorPlaneMapping {
                 double y = lastpc_[pidx[i]].y;
 
                 cv::Point coord(floor((x+5)*10),floor((y+5)*10));
-                pth_back(lastpc_[pidx[i]]);
+                M[coord].push_back(lastpc_[pidx[i]]);
             }
 
-            eps = 0.5;
-            last_node[0] = -2.9250;
-            last_node[1] = 2.2000; //found in vrep
             
             cv::Mat_<uint8_t> traversability_map(100,100);
+            
+            //initializing traversability map
             traversability_map = -1;
-            if ((hypot(posRobot.transforms.translation.x - last_node[0], posRobot.transforms.translation.y - last_node[1]) < eps) && (hypot(vRobot.linear.x, vRobot.linear.y) < eps))
-            {
-                for (ListMatrix::const_iterator it = M.begin(); it!=M.end(); it++) 
+			
+
+            // processing of all the cells to predict their traversability
+			for (ListMatrix::const_iterator it = M.begin(); it!=M.end(); it++) 
                 {
                     float outlierRatio;
                     int traversable;
@@ -117,29 +112,26 @@ class FloorPlaneMapping {
                         size_t n2 = 0;
                         size_t n3 = 0;
                         unsigned S = 0;
+                        float theta = 0;
+                        float theta_max = std::atan(1); //theta max is 45 degrees (arctan(1))
 
 
                         // Create a 3D point:
                         // Eigen::Vector3f P; P << x,y,z;
 
                         int idx = 0;
-                        n1 = std::min((rand() / (double)RAND_MAX) * nCell,(double)nCell-1);
-                        n2 = std::min((rand() / (double)RAND_MAX) * nCell,(double)nCell-1);
-                        n3 = std::min((rand() / (double)RAND_MAX) * nCell,(double)nCell-1);
+                        while (n1 == n2 || n1 == n3 || n2 == n3)
                         
-                        for (ListMatrix::const_iterator pt = L.begin(); pt!=L.end(); pt++) 
-                		{	
-                			if(idx==n1){
-                				Eigen::Vector3f P1; P1 << pt.x, pt.y, pt.z; 
-                			}
-                        	if(idx==n2){
-                				Eigen::Vector3f P2; P2 << pt.x, pt.y, pt.z; 
-                			}
-                			if(idx==n13){
-                				Eigen::Vector3f P3; P3 << pt.x, pt.y, pt.z; 
-                			}
-                        	
+                        {
+	                        n1 = std::min((rand() / (double)RAND_MAX) * nCell,(double)nCell-1);
+	                        n2 = std::min((rand() / (double)RAND_MAX) * nCell,(double)nCell-1);
+	                        n3 = std::min((rand() / (double)RAND_MAX) * nCell,(double)nCell-1);
                         }
+
+
+        				Eigen::Vector3f P1; P1 << L(n1); 
+        				Eigen::Vector3f P2; P2 << L(n2); 
+        				Eigen::Vector3f P3; P3 << L(n3); 
 
                         // Plane equation
                         float a1 = P2[0] - P1[0]; 
@@ -152,7 +144,10 @@ class FloorPlaneMapping {
                         float b = a2 * c1 - a1 * c2; 
                         float c = a1 * b2 - b1 * a2; 
                         float d = (- a * P1[0] - b * P1[1] - c * P1[2]); 
-                        Eigen::Vector3f N; N << a,b,c;
+                        
+                        Eigen::Vector3f N; N << a,b,c;  //vector normal to our predicted plane
+                        theta = std::acos(c/sqrt(c**2+b**2+a**2)) //Theta is measured between the normal to predicted plane and normal to z=0 plane (0 0 1)
+
 
 
                         for (ListMatrix::const_iterator pt = L.begin(); pt!=L.end(); pt++)
@@ -173,10 +168,12 @@ class FloorPlaneMapping {
                         X[1] = -b;
                         X[2] = -d;
 
+
+
                         float outlierRatio = (nCell - S)/nCell;
                     }
 
-                    if (outlierRatio < 0.3)
+                    if (outlierRatio < 0.3 and theta < theta_max)
                     {
                         traversable = 0;
                     }         
@@ -187,21 +184,13 @@ class FloorPlaneMapping {
                     
                     traversability_map(coord.y, coord.x) = traversable;
                 }
-            }
+            
+            
             map_pub_.publish(traversability_map);
         }   
 
-        void pos_callback(const tf2_msgs::TFMessageConstPtr msg)
-        {
-            tf2_msgs::TFMessage temp;
-            pcl::fromROSMsg(*msg, posRobot); 
-        }
 
-        void speed_callback(const geometry_msgs::TwistConstPtr msg)
-        {
-            geometry_msgs::vector3 vitesse;
-            pcl::fromROSMsg(*msg, vRobot); 
-        }
+    }
 
     public:
 
@@ -219,10 +208,17 @@ class FloorPlaneMapping {
             // Make sure TF is ready
             ros::Duration(0.5).sleep();
             scan_sub_ = nh_.subscribe("scans",1,&FloorPlaneMapping::pc_callback,this);  
-            pos_sub_ = nh_.subscribe("/tf",1,&FloorPlaneMapping::pos_callback,this);  
-            speed_sub_ = nh_.subscribe("/vrep/twistStatus",1,&FloorPlaneMapping::speed_callback,this); 
             map_pub_ = nh_.advertise<cv::Mat_<uint8_t>>("map",1); 
         }
+
+		bool operator<(const cv::Point & a, const cv::Point & b) 
+        {
+		   if (a.x == b.x) {
+		     return a.y<b.y;
+		   } else {
+		     return a.x<b.x;
+		   }
+		}        
 
 
 };
