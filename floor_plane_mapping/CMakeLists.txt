@@ -6,7 +6,7 @@ add_compile_options(-std=c++11 -g -ggdb -Wall -O3)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-find_package(catkin REQUIRED COMPONENTS pcl_ros roscpp sensor_msgs tf visualization_msgs message_generation geometry_msgs tf2_msgs)
+find_package(catkin REQUIRED COMPONENTS pcl_ros roscpp sensor_msgs tf visualization_msgs message_generation geometry_msgs tf2_msgs cv_bridge)
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -56,7 +56,7 @@ catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES floor_plane_mapping
   CATKIN_DEPENDS pcl_ros roscpp sensor_msgs tf visualization_msgs
-  message_runtime geometry_msgs tf2_msgs
+  message_runtime geometry_msgs tf2_msgs cv_bridge
 #  DEPENDS system_lib
 )
 

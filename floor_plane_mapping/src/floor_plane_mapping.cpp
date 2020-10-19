@@ -8,12 +8,27 @@
 #include <opencv2/opencv.hpp>
 #include <tf/tf.h>
 #include <tf/transform_listener.h>
+#include <cv_bridge/cv_bridge.h>
 
 #include <Eigen/Core>
 
 #include <map>
 
 //OBj2 : Détection de cercle sur le pointcloud de la cellule
+
+struct PointCmp 
+{
+	template<typename T>
+	bool operator()(const T &a, const T &b) const
+	{
+		if (a.x == b.x)
+			return a.y > b.y;
+
+		return a.x < b.x;
+	}
+};
+
+	
 
 class FloorPlaneMapping {
     protected:
@@ -29,7 +44,7 @@ class FloorPlaneMapping {
         std::string base_frame_;
 
         typedef std::vector<pcl::PointXYZ> PointList;
-        typedef std::map<cv::Point,PointList> ListMatrix;
+        typedef std::map<cv::Point,PointList, PointCmp> ListMatrix;
 
         
 
@@ -97,7 +112,7 @@ class FloorPlaneMapping {
                     const PointList &L = it -> second;
                         
                     // process Ransac
-                    unsigned int nCell = pte();
+                    unsigned int nCell = L.size();
                     size_t best = 0;
                     double X[3] = {1,1,1};
                     ROS_INFO("%d useful points out of %d",(int)n,(int)temp.size());
@@ -129,9 +144,9 @@ class FloorPlaneMapping {
                         }
 
 
-        				Eigen::Vector3f P1; P1 << L(n1); 
-        				Eigen::Vector3f P2; P2 << L(n2); 
-        				Eigen::Vector3f P3; P3 << L(n3); 
+        				Eigen::Vector3f P1; P1 << L[n1].x ,L[n1].y ,L[n1].z; 
+        				Eigen::Vector3f P2; P2 << L[n2].x ,L[n2].y ,L[n2].z; 
+        				Eigen::Vector3f P3; P3 << L[n3].x ,L[n3].y ,L[n3].z; 
 
                         // Plane equation
                         float a1 = P2[0] - P1[0]; 
@@ -146,13 +161,13 @@ class FloorPlaneMapping {
                         float d = (- a * P1[0] - b * P1[1] - c * P1[2]); 
                         
                         Eigen::Vector3f N; N << a,b,c;  //vector normal to our predicted plane
-                        theta = std::acos(c/sqrt(c**2+b**2+a**2)) //Theta is measured between the normal to predicted plane and normal to z=0 plane (0 0 1)
+                        theta = std::acos(c/sqrt(c*c+b*b+a*a)); //Theta is measured between the normal to predicted plane and normal to z=0 plane (0 0 1)
 
 
 
-                        for (ListMatrix::const_iterator pt = L.begin(); pt!=L.end(); pt++)
+                        for (int i = 0; i<L.size(); i++)
                         {   
-                            Eigen::Vector3f A; A << pt.x, pt.y, pt.z; 
+                            Eigen::Vector3f A; A << L[i].x, L[i].y, L[i].z; 
                             Eigen::Vector3f M; M << P3[0],P3[1],P3[2] ;
                             Eigen::Vector3f MA; MA << A[0]-M[0], A[1]-M[1], A[2]-M[2];
                             double distance =   abs(MA.dot(N))/N.norm();
@@ -186,9 +201,11 @@ class FloorPlaneMapping {
                 }
             
             
-            map_pub_.publish(traversability_map);
+
         }   
 
+        cv_bridge::CvImage br(msg->header, "mono8", traversability_map);   
+        map_pub_.publish(br.toImageMsg());
 
     }
 
@@ -208,17 +225,10 @@ class FloorPlaneMapping {
             // Make sure TF is ready
             ros::Duration(0.5).sleep();
             scan_sub_ = nh_.subscribe("scans",1,&FloorPlaneMapping::pc_callback,this);  
-            map_pub_ = nh_.advertise<cv::Mat_<uint8_t>>("map",1); 
+            map_pub_ = nh_.advertise<sensor_msgs::Image>("/traversability_map", 1);
         }
 
-		bool operator<(const cv::Point & a, const cv::Point & b) 
-        {
-		   if (a.x == b.x) {
-		     return a.y<b.y;
-		   } else {
-		     return a.x<b.x;
-		   }
-		}        
+		      
 
 
 };
