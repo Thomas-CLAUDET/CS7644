@@ -1,0 +1,12 @@
+<launch>
+
+  <node pkg="floor_plane_mapping" type="floor_plane_mapping" name="floor_plane_mapping" output="screen">
+      launch-prefix="xterm -e gdb --args"
+      <param name="base_frame" value="/bubbleRob" />
+      <param name="max_range" value="2.0" />
+      <param name="n_samples" value="100" />
+      <param name="tolerance" value="0.5" />
+
+      <remap from="/floor_plane_mapping/scans" to="/depth_registered/points"/>
+  </node>
+</launch>
