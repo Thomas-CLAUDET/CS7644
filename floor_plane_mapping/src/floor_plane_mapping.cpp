@@ -60,6 +60,7 @@ class FloorPlaneMapping {
     protected: // ROS Callbacks
 
         void pc_callback(const sensor_msgs::PointCloud2ConstPtr msg) {
+            ROS_INFO("BEGINNING OF CALLBACK");
             pcl::PointCloud<pcl::PointXYZ> temp;
             pcl::fromROSMsg(*msg, temp);
             // Make sure the point cloud is in the base-frame
@@ -102,7 +103,7 @@ class FloorPlaneMapping {
             //initializing traversability map
             traversability_map = -1;
 			
-
+            ROS_INFO("Traversability map initialized");
             // processing of all the cells to predict their traversability
 			for (ListMatrix::const_iterator it = M.begin(); it!=M.end(); it++) 
                 {
@@ -143,7 +144,7 @@ class FloorPlaneMapping {
 	                        n3 = std::min((rand() / (double)RAND_MAX) * nCell,(double)nCell-1);
                         }
 
-
+                        ROS_INFO("Point chosen");
         				Eigen::Vector3f P1; P1 << L[n1].x ,L[n1].y ,L[n1].z; 
         				Eigen::Vector3f P2; P2 << L[n2].x ,L[n2].y ,L[n2].z; 
         				Eigen::Vector3f P3; P3 << L[n3].x ,L[n3].y ,L[n3].z; 
@@ -196,16 +197,16 @@ class FloorPlaneMapping {
                     {
                         traversable = 1;
                     }
-                    
+                    ROS_INFO("Updating Traversability");
                     traversability_map(coord.y, coord.x) = traversable;
                 }
-            
+            ROS_INFO("End of Ransac");
             
 
         }   
 
-        cv_bridge::CvImage br(msg->header, "mono8", traversability_map);   
-        map_pub_.publish(br.toImageMsg());
+        sensor_msgs::ImagePtr image = cv_bridge::CvImage(std_msgs::Header(), "mono8", traversability_map).toImageMsg();
+        map_pub_.publish(image);
 
     }
 
@@ -215,17 +216,19 @@ class FloorPlaneMapping {
         {
             nh_.param("base_frame",base_frame_,std::string("/bubbleRob"));
             nh_.param("max_range",max_range_,2.0);
-            nh_.param("n_samples",n_samples,100);
+            nh_.param("n_samples",n_samples,10);
             nh_.param("tolerance",tolerance,0.5);
 
             ROS_INFO("Searching for Plane parameter z = a x + b y + c");
             ROS_INFO("RANSAC: %d iteration with %f tolerance",n_samples,tolerance);
-            assert(n_samples > 0);
 
             // Make sure TF is ready
             ros::Duration(0.5).sleep();
+            ROS_INFO("Suscribing");
             scan_sub_ = nh_.subscribe("scans",1,&FloorPlaneMapping::pc_callback,this);  
+            ROS_INFO("Subscribed");
             map_pub_ = nh_.advertise<sensor_msgs::Image>("/traversability_map", 1);
+            ROS_INFO("Advertised");
         }
 
 		      

@@ -1,0 +1,19 @@
+<launch>
+
+  <node pkg="cylinder_detection" type="cylinder_detection" name="cylinder_detection" output="screen">
+      launch-prefix="xterm -e gdb --args"
+      <param name="base_frame" value="/bubbleRob" />
+      <param name="max_range" value="2.0" />
+      <param name="n_a" value="100" />
+      <param name="a_min" value="-5.0" />
+      <param name="a_max" value="5.0" />
+      <param name="n_b" value="100" />
+      <param name="b_min" value="-5.0" />
+      <param name="b_max" value="5.0" />
+      <param name="n_r" value="3" />
+      <param name="r_min" value="10" />
+      <param name="r_max" value="15" />
+
+      <remap from="/cylinder_detection/scans" to="/depth_registered/points"/>
+  </node>
+</launch>
